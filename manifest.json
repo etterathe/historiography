@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "historiography",
+  "version": "0.1",
+  "description": "Analyze your browsing history on the graph",
+  "permissions": ["history", "tabs"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open your history graph"
+  }
+}
