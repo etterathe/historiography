@@ -18,8 +18,76 @@ function getFaviconUrl(url) {
 }
 
 // Function to get history
-function getHistory(callback) {
-  chrome.history.search({ text: "", maxResults: 1000 }, callback);
+function getHistory(days, callback) {
+  console.log(`Starting to fetch history for the last ${days} days...`);
+  const microsecondsPerDay = 1000 * 60 * 60 * 24;
+  const endTime = new Date().getTime();
+  const startTime = endTime - days * microsecondsPerDay;
+
+  let allHistory = [];
+
+  function fetchHistory(searchStartTime, searchEndTime) {
+    console.log(
+      `Fetching history from ${new Date(searchStartTime)} to ${new Date(searchEndTime)}...`,
+    );
+    chrome.history.search(
+      {
+        text: "",
+        startTime: searchStartTime,
+        endTime: searchEndTime,
+        maxResults: 1000,
+      },
+      function (historyItems) {
+        if (chrome.runtime.lastError) {
+          console.error("Error fetching history:", chrome.runtime.lastError);
+          callback(allHistory);
+          return;
+        }
+
+        console.log(`Received ${historyItems.length} history items.`);
+        allHistory = allHistory.concat(historyItems);
+
+        if (historyItems.length === 1000) {
+          // If we got 1000 results, there might be more
+          const oldestTime = Math.min(
+            ...historyItems.map((h) => h.lastVisitTime),
+          );
+          if (oldestTime > searchStartTime) {
+            // Continue fetching only if we haven't reached the start time
+            fetchHistory(searchStartTime, oldestTime - 1);
+          } else {
+            console.log(
+              `Finished fetching history. Total items: ${allHistory.length}`,
+            );
+            callback(allHistory);
+          }
+        } else {
+          // We've got all the history, now callback
+          console.log(
+            `Finished fetching history. Total items: ${allHistory.length}`,
+          );
+          callback(allHistory);
+        }
+      },
+    );
+  }
+
+  // Start fetching from the end time to the start time
+  fetchHistory(startTime, endTime);
+}
+
+// Function to filter history items based on time horizon
+function filterHistoryByTimeHorizon(historyItems, days) {
+  console.log(
+    `Filtering ${historyItems.length} items for last ${days} days...`,
+  );
+  const now = Date.now();
+  const cutoff = now - days * 24 * 60 * 60 * 1000;
+  const filteredItems = historyItems.filter((item) => {
+    return item.lastVisitTime > cutoff;
+  });
+  console.log(`Filtered to ${filteredItems.length} items.`);
+  return filteredItems;
 }
 
 // Function to create graph structure
@@ -63,8 +131,11 @@ function createGraphStructure(historyItems) {
 
 // Function to draw graph
 function drawGraph(data) {
+  // Clear existing graph
+  d3.select("#graph").selectAll("*").remove();
+
   const width = window.innerWidth;
-  const height = window.innerHeight;
+  const height = window.innerHeight - 50; // Adjust for slider height
 
   const svg = d3
     .select("#graph")
@@ -83,6 +154,9 @@ function drawGraph(data) {
 
   svg.call(zoom);
 
+  // Calculate the radius for the circular layout
+  const radius = Math.min(width, height) / 2 - 100;
+
   const simulation = d3
     .forceSimulation(data.nodes)
     .force(
@@ -94,7 +168,12 @@ function drawGraph(data) {
     )
     .force("charge", d3.forceManyBody().strength(-300))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(30));
+    .force("collision", d3.forceCollide().radius(30))
+    // Add radial force for circular layout
+    .force(
+      "radial",
+      d3.forceRadial(radius, width / 2, height / 2).strength(0.5),
+    );
 
   const link = g
     .append("g")
@@ -185,31 +264,6 @@ function drawGraph(data) {
 
     node.attr("transform", (d) => `translate(${d.x},${d.y})`);
   });
-
-  // Fit graph to viewport
-  function fitGraphToViewport() {
-    const bounds = g.node().getBBox();
-    const fullWidth = bounds.width;
-    const fullHeight = bounds.height;
-    const midX = bounds.x + fullWidth / 2;
-    const midY = bounds.y + fullHeight / 2;
-
-    if (fullWidth === 0 || fullHeight === 0) return; // nothing to fit
-
-    const scale = 0.95 / Math.max(fullWidth / width, fullHeight / height);
-    const translate = [width / 2 - scale * midX, height / 2 - scale * midY];
-
-    svg
-      .transition()
-      .duration(750)
-      .call(
-        zoom.transform,
-        d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale),
-      );
-  }
-
-  // Call fitGraphToViewport after the simulation has cooled down
-  // simulation.on("end", fitGraphToViewport);
 }
 
 // Function to handle node dragging
@@ -238,10 +292,69 @@ function drag(simulation) {
     .on("end", dragended);
 }
 
+// Function to update the graph based on the selected time horizon
+function updateGraph(historyItems, timeHorizon) {
+  console.log(
+    `Updating graph with ${historyItems.length} items and ${timeHorizon} days horizon...`,
+  );
+  const filteredItems = filterHistoryByTimeHorizon(historyItems, timeHorizon);
+  const graphData = createGraphStructure(filteredItems);
+  console.log(
+    `Graph data created with ${graphData.nodes.length} nodes and ${graphData.links.length} links.`,
+  );
+  drawGraph(graphData);
+
+  // Update the item count display
+  const itemCountElement = document.getElementById("item-count");
+  if (itemCountElement) {
+    itemCountElement.textContent = `Showing ${filteredItems.length} items`;
+  } else {
+    console.warn("item-count element not found in the document.");
+  }
+}
 // Initialization
 document.addEventListener("DOMContentLoaded", () => {
-  getHistory((historyItems) => {
-    const graphData = createGraphStructure(historyItems);
-    drawGraph(graphData);
+  console.log("DOM content loaded. Initializing...");
+  const timeHorizons = [1, 3, 7, 30, 90]; // Up to 90 days for now
+  const sliderElement = document.getElementById("time-horizon");
+  const sliderValueElement = document.getElementById("slider-value");
+
+  if (!sliderElement || !sliderValueElement) {
+    console.error("Required DOM elements not found. Aborting initialization.");
+    return;
+  }
+
+  function updateGraphForTimeHorizon(days) {
+    getHistory(days, (historyItems) => {
+      console.log(
+        `Total history items fetched for ${days} days: ${historyItems.length}`,
+      );
+
+      if (historyItems.length === 0) {
+        console.warn("No history items fetched. The graph will be empty.");
+      }
+
+      // Update graph
+      updateGraph(historyItems, days);
+    });
+  }
+
+  // Initial graph draw
+  const initialDays = timeHorizons[sliderElement.value];
+  updateGraphForTimeHorizon(initialDays);
+
+  // Update slider value text
+  sliderValueElement.textContent = `Last ${initialDays} days`;
+
+  // Add event listener for slider changes
+  sliderElement.addEventListener("input", (event) => {
+    const selectedTimeHorizon = timeHorizons[event.target.value];
+    sliderValueElement.textContent = `Last ${selectedTimeHorizon} days`;
+    updateGraphForTimeHorizon(selectedTimeHorizon);
   });
+});
+
+// Error handling for unexpected errors
+window.addEventListener("error", function (event) {
+  console.error("Uncaught error:", event.error);
 });
