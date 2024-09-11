@@ -1,102 +1,88 @@
-// Function to get domain from URL
-function getDomain(url) {
+// Constants
+const MICROSECONDS_PER_DAY = 1000 * 60 * 60 * 24;
+const MAX_RESULTS_PER_SEARCH = 1000;
+
+// Helper functions
+const getDomain = (url) => {
   try {
     return new URL(url).hostname;
   } catch (error) {
-    return url; // fallback to full URL if parsing fails
+    console.warn(`Failed to parse URL: ${url}`, error);
+    return url;
   }
-}
+};
 
-// Function to format date
-function formatDate(date) {
-  return new Date(date).toLocaleString();
-}
+const formatDate = (date) => new Date(date).toLocaleString();
 
-// Function to get favicon URL
-function getFaviconUrl(url) {
-  return `https://www.google.com/s2/favicons?domain=${url}&sz=32`;
-}
+const getFaviconUrl = (url) =>
+  `https://www.google.com/s2/favicons?domain=${url}&sz=32`;
 
-// Function to get history
-function getHistory(days, callback) {
+// History fetching
+const getHistory = async (days) => {
   console.log(`Starting to fetch history for the last ${days} days...`);
-  const microsecondsPerDay = 1000 * 60 * 60 * 24;
-  const endTime = new Date().getTime();
-  const startTime = endTime - days * microsecondsPerDay;
+  const endTime = Date.now();
+  const startTime = endTime - days * MICROSECONDS_PER_DAY;
 
-  let allHistory = [];
-
-  function fetchHistory(searchStartTime, searchEndTime) {
+  const fetchHistoryChunk = async (searchStartTime, searchEndTime) => {
     console.log(
       `Fetching history from ${new Date(searchStartTime)} to ${new Date(searchEndTime)}...`,
     );
-    chrome.history.search(
-      {
-        text: "",
-        startTime: searchStartTime,
-        endTime: searchEndTime,
-        maxResults: 1000,
-      },
-      function (historyItems) {
-        if (chrome.runtime.lastError) {
-          console.error("Error fetching history:", chrome.runtime.lastError);
-          callback(allHistory);
-          return;
-        }
-
-        console.log(`Received ${historyItems.length} history items.`);
-        allHistory = allHistory.concat(historyItems);
-
-        if (historyItems.length === 1000) {
-          // If we got 1000 results, there might be more
-          const oldestTime = Math.min(
-            ...historyItems.map((h) => h.lastVisitTime),
-          );
-          if (oldestTime > searchStartTime) {
-            // Continue fetching only if we haven't reached the start time
-            fetchHistory(searchStartTime, oldestTime - 1);
-          } else {
-            console.log(
-              `Finished fetching history. Total items: ${allHistory.length}`,
+    return new Promise((resolve, reject) => {
+      chrome.history.search(
+        {
+          text: "",
+          startTime: searchStartTime,
+          endTime: searchEndTime,
+          maxResults: MAX_RESULTS_PER_SEARCH,
+        },
+        (historyItems) => {
+          if (chrome.runtime.lastError) {
+            reject(
+              new Error(
+                `Error fetching history: ${chrome.runtime.lastError.message}`,
+              ),
             );
-            callback(allHistory);
+          } else {
+            resolve(historyItems);
           }
-        } else {
-          // We've got all the history, now callback
-          console.log(
-            `Finished fetching history. Total items: ${allHistory.length}`,
-          );
-          callback(allHistory);
-        }
-      },
-    );
+        },
+      );
+    });
+  };
+
+  let allHistory = [];
+  let currentStartTime = startTime;
+
+  while (currentStartTime < endTime) {
+    const chunk = await fetchHistoryChunk(currentStartTime, endTime);
+    allHistory = allHistory.concat(chunk);
+
+    if (chunk.length < MAX_RESULTS_PER_SEARCH) break;
+
+    currentStartTime = Math.min(...chunk.map((h) => h.lastVisitTime)) + 1;
   }
 
-  // Start fetching from the end time to the start time
-  fetchHistory(startTime, endTime);
-}
+  console.log(`Finished fetching history. Total items: ${allHistory.length}`);
+  return allHistory;
+};
 
-// Function to filter history items based on time horizon
-function filterHistoryByTimeHorizon(historyItems, days) {
+// Data processing
+const filterHistoryByTimeHorizon = (historyItems, days) => {
   console.log(
     `Filtering ${historyItems.length} items for last ${days} days...`,
   );
-  const now = Date.now();
-  const cutoff = now - days * 24 * 60 * 60 * 1000;
-  const filteredItems = historyItems.filter((item) => {
-    return item.lastVisitTime > cutoff;
-  });
-  console.log(`Filtered to ${filteredItems.length} items.`);
-  return filteredItems;
-}
+  const cutoff = Date.now() - days * MICROSECONDS_PER_DAY;
+  return historyItems.filter((item) => item.lastVisitTime > cutoff);
+};
 
-// Function to create graph structure
-function createGraphStructure(historyItems) {
+const createGraphStructure = (historyItems) => {
   const nodes = new Map();
   const links = new Map();
 
   historyItems.forEach((item, index) => {
     const domain = getDomain(item.url);
+
+    // Update nodes
     if (!nodes.has(domain)) {
       nodes.set(domain, {
         id: domain,
@@ -110,6 +96,7 @@ function createGraphStructure(historyItems) {
       node.lastVisit = Math.max(node.lastVisit, item.lastVisitTime);
     }
 
+    // Update links
     if (index > 0) {
       const prevDomain = getDomain(historyItems[index - 1].url);
       if (prevDomain !== domain) {
@@ -127,78 +114,70 @@ function createGraphStructure(historyItems) {
     nodes: Array.from(nodes.values()),
     links: Array.from(links.values()),
   };
-}
+};
 
-// Function to draw graph
-function drawGraph(data) {
-  // Clear existing graph
-  d3.select("#graph").selectAll("*").remove();
-
-  const width = window.innerWidth;
-  const height = window.innerHeight - 50; // Adjust for slider height
-
-  const svg = d3
+// Graph rendering
+const createSVG = (width, height) => {
+  return d3
     .select("#graph")
     .append("svg")
     .attr("width", width)
     .attr("height", height);
+};
 
-  const g = svg.append("g");
-
-  const zoom = d3
+const createZoom = (g) => {
+  return d3
     .zoom()
     .scaleExtent([0.1, 4])
     .on("zoom", (event) => {
       g.attr("transform", event.transform);
     });
+};
 
-  svg.call(zoom);
-
-  // Calculate the radius for the circular layout
-  const radius = Math.min(width, height) / 2 - 100;
-
-  const simulation = d3
-    .forceSimulation(data.nodes)
+const createSimulation = (nodes, links, width, height, radius) => {
+  return d3
+    .forceSimulation(nodes)
     .force(
       "link",
       d3
-        .forceLink(data.links)
+        .forceLink(links)
         .id((d) => d.id)
         .distance(100),
     )
     .force("charge", d3.forceManyBody().strength(-300))
     .force("center", d3.forceCenter(width / 2, height / 2))
     .force("collision", d3.forceCollide().radius(30))
-    // Add radial force for circular layout
     .force(
       "radial",
       d3.forceRadial(radius, width / 2, height / 2).strength(0.5),
     );
+};
 
-  const link = g
+const createLinks = (g, links) => {
+  return g
     .append("g")
     .attr("class", "links")
     .selectAll("line")
-    .data(data.links)
+    .data(links)
     .enter()
     .append("line")
     .attr("stroke", "#999")
     .attr("stroke-opacity", 0.6)
     .attr("stroke-width", (d) => Math.sqrt(d.value));
+};
 
+const createNodes = (g, nodes, simulation) => {
   const node = g
     .append("g")
     .attr("class", "nodes")
     .selectAll("g")
-    .data(data.nodes)
+    .data(nodes)
     .enter()
     .append("g")
     .call(drag(simulation));
 
-  // Add favicon backgrounds
   node.append("circle").attr("r", 16).attr("fill", "white");
 
-  // Add favicons
   node
     .append("image")
     .attr("xlink:href", (d) => getFaviconUrl(d.url))
@@ -216,13 +195,18 @@ function drawGraph(data) {
     .text((d) => d.id)
     .style("font-size", "8px");
 
-  // Add tooltip
-  const tooltip = d3
+  return node;
+};
+
+const createTooltip = () => {
+  return d3
     .select("body")
     .append("div")
     .attr("class", "tooltip")
     .style("opacity", 0);
+};
 
+const addNodeInteractions = (node, link, tooltip) => {
   node
     .on("mouseover", function (event, d) {
       tooltip.transition().duration(200).style("opacity", 0.9);
@@ -230,12 +214,11 @@ function drawGraph(data) {
         .html(
           `Domain: ${d.id}<br/>Visits: ${d.visitCount}<br/>Last visit: ${formatDate(d.lastVisit)}`,
         )
-        .style("left", event.pageX + 10 + "px")
-        .style("top", event.pageY - 28 + "px");
+        .style("left", `${event.pageX + 10}px`)
+        .style("top", `${event.pageY - 28}px`);
 
-      // Highlight connected nodes
       const connectedNodes = new Set([d.id]);
-      link.each(function (l) {
+      link.each((l) => {
         if (l.source.id === d.id) connectedNodes.add(l.target.id);
         if (l.target.id === d.id) connectedNodes.add(l.source.id);
       });
@@ -247,13 +230,62 @@ function drawGraph(data) {
           : 0.1,
       );
     })
-    .on("mouseout", function (d) {
+    .on("mouseout", function () {
       tooltip.transition().duration(500).style("opacity", 0);
-
-      // Reset highlights
       node.style("opacity", 1);
       link.style("opacity", 0.6);
     });
+};
+
+const drag = (simulation) => {
+  const dragstarted = (event) => {
+    if (!event.active) simulation.alphaTarget(0.3).restart();
+    event.subject.fx = event.subject.x;
+    event.subject.fy = event.subject.y;
+  };
+
+  const dragged = (event) => {
+    event.subject.fx = event.x;
+    event.subject.fy = event.y;
+  };
+
+  const dragended = (event) => {
+    if (!event.active) simulation.alphaTarget(0);
+    event.subject.fx = null;
+    event.subject.fy = null;
+  };
+
+  return d3
+    .drag()
+    .on("start", dragstarted)
+    .on("drag", dragged)
+    .on("end", dragended);
+};
+
+const drawGraph = (data) => {
+  d3.select("#graph").selectAll("*").remove();
+
+  const width = window.innerWidth;
+  const height = window.innerHeight - 50;
+  const radius = Math.min(width, height) / 2 - 100;
+
+  const svg = createSVG(width, height);
+  const g = svg.append("g");
+  const zoom = createZoom(g);
+  svg.call(zoom);
+
+  const simulation = createSimulation(
+    data.nodes,
+    data.links,
+    width,
+    height,
+    radius,
+  );
+  const link = createLinks(g, data.links);
+  const node = createNodes(g, data.nodes, simulation);
+  const tooltip = createTooltip();
+
+  addNodeInteractions(node, link, tooltip);
 
   simulation.on("tick", () => {
     link
@@ -264,97 +296,69 @@ function drawGraph(data) {
 
     node.attr("transform", (d) => `translate(${d.x},${d.y})`);
   });
-}
+};
 
-// Function to handle node dragging
-function drag(simulation) {
-  function dragstarted(event) {
-    if (!event.active) simulation.alphaTarget(0.3).restart();
-    event.subject.fx = event.subject.x;
-    event.subject.fy = event.subject.y;
+// Main functions
+const updateGraph = async (timeHorizon) => {
+  try {
+    const historyItems = await getHistory(timeHorizon);
+    const filteredItems = filterHistoryByTimeHorizon(historyItems, timeHorizon);
+    const graphData = createGraphStructure(filteredItems);
+
+    drawGraph(graphData);
+
+    const itemCountElement = document.getElementById("item-count");
+    if (itemCountElement) {
+      itemCountElement.textContent = `Showing ${filteredItems.length} items`;
+    } else {
+      console.warn("item-count element not found in the document.");
+    }
+  } catch (error) {
+    console.error("Error updating graph:", error);
+    // TODO: Add user-facing error handling
   }
+};
 
-  function dragged(event) {
-    event.subject.fx = event.x;
-    event.subject.fy = event.y;
-  }
-
-  function dragended(event) {
-    if (!event.active) simulation.alphaTarget(0);
-    event.subject.fx = null;
-    event.subject.fy = null;
-  }
-
-  return d3
-    .drag()
-    .on("start", dragstarted)
-    .on("drag", dragged)
-    .on("end", dragended);
-}
-
-// Function to update the graph based on the selected time horizon
-function updateGraph(historyItems, timeHorizon) {
-  console.log(
-    `Updating graph with ${historyItems.length} items and ${timeHorizon} days horizon...`,
-  );
-  const filteredItems = filterHistoryByTimeHorizon(historyItems, timeHorizon);
-  const graphData = createGraphStructure(filteredItems);
-  console.log(
-    `Graph data created with ${graphData.nodes.length} nodes and ${graphData.links.length} links.`,
-  );
-  drawGraph(graphData);
-
-  // Update the item count display
-  const itemCountElement = document.getElementById("item-count");
-  if (itemCountElement) {
-    itemCountElement.textContent = `Showing ${filteredItems.length} items`;
-  } else {
-    console.warn("item-count element not found in the document.");
-  }
-}
-// Initialization
-document.addEventListener("DOMContentLoaded", () => {
-  console.log("DOM content loaded. Initializing...");
-  const timeHorizons = [1, 3, 7, 30, 90]; // Up to 90 days for now
+const initializeUI = () => {
+  const timeHorizons = [1, 3, 7, 30, 90];
   const sliderElement = document.getElementById("time-horizon");
   const sliderValueElement = document.getElementById("slider-value");
 
   if (!sliderElement || !sliderValueElement) {
-    console.error("Required DOM elements not found. Aborting initialization.");
-    return;
+    throw new Error(
+      "Required DOM elements not found. Aborting initialization.",
+    );
   }
 
-  function updateGraphForTimeHorizon(days) {
-    getHistory(days, (historyItems) => {
-      console.log(
-        `Total history items fetched for ${days} days: ${historyItems.length}`,
-      );
+  const updateSliderValue = (value) => {
+    sliderValueElement.textContent = `Last ${value} days`;
+  };
 
-      if (historyItems.length === 0) {
-        console.warn("No history items fetched. The graph will be empty.");
-      }
-
-      // Update graph
-      updateGraph(historyItems, days);
-    });
-  }
-
-  // Initial graph draw
-  const initialDays = timeHorizons[sliderElement.value];
-  updateGraphForTimeHorizon(initialDays);
-
-  // Update slider value text
-  sliderValueElement.textContent = `Last ${initialDays} days`;
-
-  // Add event listener for slider changes
   sliderElement.addEventListener("input", (event) => {
     const selectedTimeHorizon = timeHorizons[event.target.value];
-    sliderValueElement.textContent = `Last ${selectedTimeHorizon} days`;
-    updateGraphForTimeHorizon(selectedTimeHorizon);
+    updateSliderValue(selectedTimeHorizon);
+    updateGraph(selectedTimeHorizon);
   });
+
+  // Initial setup
+  const initialDays = timeHorizons[sliderElement.value];
+  updateSliderValue(initialDays);
+  updateGraph(initialDays);
+};
+
+// Initialization
+document.addEventListener("DOMContentLoaded", () => {
+  try {
+    console.log("DOM content loaded. Initializing...");
+    initializeUI();
+  } catch (error) {
+    console.error("Initialization error:", error);
+    // TODO: Add user-facing error handling
+  }
 });
 
-// Error handling for unexpected errors
-window.addEventListener("error", function (event) {
+// Global error handling
+window.addEventListener("error", (event) => {
   console.error("Uncaught error:", event.error);
+  // TODO: Add user-facing error handling
 });

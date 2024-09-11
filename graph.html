@@ -7,18 +7,78 @@
         <script src="d3.v7.min.js"></script>
         <script src="graph.js"></script>
         <style>
-            body,
-            html {
+            body {
+                font-family: "Arial", sans-serif;
+                background-color: #f0f2f5;
                 margin: 0;
-                padding: 0;
-                width: 100%;
-                height: 100%;
-                overflow: hidden;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
             }
+
             #graph {
                 width: 100%;
-                height: calc(100% - 50px);
+                height: calc(100vh - 150px);
             }
+
+            #slider-container {
+                width: 100%;
+                max-width: 600px;
+                padding: 20px;
+                background-color: white;
+                border-radius: 8px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+
+            #time-horizon {
+                width: 100%;
+                -webkit-appearance: none;
+                appearance: none;
+                height: 4px;
+                background: #ddd;
+                outline: none;
+                opacity: 0.7;
+                transition: opacity 0.2s;
+                margin-bottom: 30px;
+            }
+
+            #time-horizon:hover {
+                opacity: 1;
+            }
+
+            #time-horizon::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 20px;
+                height: 20px;
+                background: #4caf50;
+                cursor: pointer;
+                border-radius: 50%;
+                box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+            }
+
+            #time-horizon::-moz-range-thumb {
+                width: 20px;
+                height: 20px;
+                background: #4caf50;
+                cursor: pointer;
+                border-radius: 50%;
+                box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+            }
+
+            .slider-labels {
+                display: flex;
+                justify-content: space-between;
+                margin-top: -15px;
+            }
+
+            .slider-label {
+                font-size: 12px;
+                color: #666;
+                text-align: center;
+            }
+
             .tooltip {
                 position: absolute;
                 background-color: white;
@@ -27,22 +87,20 @@
                 border-radius: 5px;
                 pointer-events: none;
             }
-            #slider-container {
-                position: fixed;
-                bottom: 20px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 80%;
+
+            #slider-value {
                 text-align: center;
-            }
-            #time-horizon {
-                width: 100%;
+                font-size: 18px;
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 10px;
             }
         </style>
     </head>
     <body>
         <div id="graph"></div>
         <div id="slider-container">
+            <div id="slider-value">Last 7 days</div>
             <input
                 type="range"
                 id="time-horizon"
@@ -51,8 +109,13 @@
                 step="1"
                 value="2"
             />
-            <p id="slider-value">Last 1 days</p>
-            <p id="item-count"></p>
+            <div class="slider-labels">
+                <span class="slider-label">1d</span>
+                <span class="slider-label">3d</span>
+                <span class="slider-label">7d</span>
+                <span class="slider-label">30d</span>
+                <span class="slider-label">90d</span>
+            </div>
         </div>
     </body>
 </html>
