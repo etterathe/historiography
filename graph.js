@@ -350,8 +350,13 @@ const displayClustersInSidebar = (graph) => {
   const title = document.createElement("h2");
   title.textContent = "Clusters";
   title.style.textAlign = "center"; // Center the title
-  title.style.marginBottom = "15px"; // Add some space below the title
+  title.style.marginBottom = "1.5rem"; // Add some space below the title
   sidebar.appendChild(title);
+
+  // Create a container for clusters with flex-grow to fill available space
+  const clusterList = document.createElement("div");
+  clusterList.className = "cluster-list";
+  sidebar.appendChild(clusterList);
 
   const clusters = new Map();
   graph.nodes.forEach((node) => {
@@ -376,8 +381,7 @@ const displayClustersInSidebar = (graph) => {
     nameContainer.style.flexGrow = "1"; // Allow the name container to take the available space
 
     // Display cluster name as text initially
-    const currentClusterName =
-      clusterNames.get(cluster) || `Cluster ${cluster}`;
+    const currentClusterName = clusterNames.get(cluster) || `${cluster}`;
     const clusterNameText = document.createElement("span");
     clusterNameText.textContent = currentClusterName;
     clusterNameText.style.color = clusterColors(cluster);
@@ -389,10 +393,10 @@ const displayClustersInSidebar = (graph) => {
     clusterNameInput.type = "text";
     clusterNameInput.value = currentClusterName;
     clusterNameInput.style.color = clusterColors(cluster);
-    clusterNameInput.style.fontSize = "18px";
-    clusterNameInput.style.border = "1px solid #ccc";
+    clusterNameInput.style.fontSize = "16px";
     clusterNameInput.style.backgroundColor = "transparent";
     clusterNameInput.style.position = "absolute"; // Positioned absolutely within the container
+    clusterNameInput.style.border = "1px solid #ccc";
     clusterNameInput.style.top = "0";
     clusterNameInput.style.left = "0";
     clusterNameInput.style.width = "100%";
@@ -450,10 +454,10 @@ const displayClustersInSidebar = (graph) => {
     deleteButton.style.borderRadius = "50%";
     deleteButton.style.padding = "4px";
 
-    // Delete button click: Remove the cluster
+    // Delete button click: Remove the cluster from the sidebar
     deleteButton.addEventListener("click", (event) => {
       event.stopPropagation(); // Prevent other actions like highlighting
-      deleteCluster(cluster, graph); // Call deleteCluster function
+      deleteClusterFromSidebar(clusterDiv);
     });
 
     // Append text and input to the name container
@@ -469,6 +473,59 @@ const displayClustersInSidebar = (graph) => {
     clusterDiv.appendChild(clusterHeader);
     sidebar.appendChild(clusterDiv);
   });
+  // Add the Save button at the bottom of the sidebar
+  const saveButton = document.createElement("button");
+  saveButton.innerHTML =
+    '<span class="material-symbols-outlined">download</span>'; // Download icon
+  saveButton.style.marginTop = "20px";
+  saveButton.style.width = "100%";
+  saveButton.style.padding = "10px";
+  saveButton.style.fontSize = "16px";
+  saveButton.style.cursor = "pointer";
+  saveButton.style.color = "white";
+  saveButton.style.backgroundColor = "gray";
+  saveButton.style.border = "none";
+  saveButton.style.borderRadius = "5px";
+  saveButton.className = "save-button";
+
+  // Save button click: Download the graph as a JSON file
+  saveButton.addEventListener("click", () => saveGraphAsJSON(graph));
+
+  sidebar.appendChild(saveButton);
+};
+
+// Function to save the current graph to a JSON file
+const saveGraphAsJSON = (graph) => {
+  const graphData = {
+    nodes: graph.nodes.map((node) => ({
+      id: node.id,
+      url: node.url,
+      visitCount: node.visitCount,
+      lastVisit: node.lastVisit,
+      cluster: node.cluster,
+    })),
+    links: graph.links.map((link) => ({
+      source: link.source.id,
+      target: link.target.id,
+      value: link.value,
+    })),
+  };
+
+  const jsonString = JSON.stringify(graphData, null, 2); // Pretty-print JSON
+  const blob = new Blob([jsonString], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "graph.json"; // File name for download
+  document.body.appendChild(a);
+  a.click();
+
+  document.body.removeChild(a); // Clean up after download
+};
+
+const deleteClusterFromSidebar = (clusterDiv) => {
+  clusterDiv.remove(); // Remove the cluster element from the sidebar
 };
 
 const deleteCluster = (cluster, graph) => {
