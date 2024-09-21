@@ -6,12 +6,17 @@
         <title>historiography</title>
         <script src="d3.v7.min.js"></script>
         <script src="graph.js"></script>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
         <style>
+            :root {
+                font-size: 16px;
+            }
+
             body {
                 font-family: "Arial", sans-serif;
                 background-color: #f0f2f5;
                 margin: 0;
-                padding: 20px;
+                padding: 1.2rem;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
@@ -19,28 +24,28 @@
 
             #graph {
                 width: 100%;
-                height: calc(100vh - 150px);
+                height: calc(100vh - 10rem);
             }
 
             #slider-container {
                 width: 100%;
-                max-width: 600px;
-                padding: 20px;
+                max-width: 37.5rem;
+                padding: 1.25rem;
                 background-color: white;
-                border-radius: 8px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+                border-radius: 0.5rem;
+                box-shadow: 0 0.25rem 0.375rem rgba(0, 0, 0, 0.1);
             }
 
             #time-horizon {
                 width: 100%;
                 -webkit-appearance: none;
                 appearance: none;
-                height: 4px;
+                height: 0.25rem;
                 background: #ddd;
                 outline: none;
                 opacity: 0.7;
                 transition: opacity 0.2s;
-                margin-bottom: 30px;
+                margin-bottom: 1.875rem;
             }
 
             #time-horizon:hover {
@@ -50,31 +55,31 @@
             #time-horizon::-webkit-slider-thumb {
                 -webkit-appearance: none;
                 appearance: none;
-                width: 20px;
-                height: 20px;
+                width: 1.25rem;
+                height: 1.25rem;
                 background: #4caf50;
                 cursor: pointer;
                 border-radius: 50%;
-                box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+                box-shadow: 0 0 0.3125rem rgba(0, 0, 0, 0.2);
             }
 
             #time-horizon::-moz-range-thumb {
-                width: 20px;
-                height: 20px;
+                width: 1.25rem;
+                height: 1.25rem;
                 background: #4caf50;
                 cursor: pointer;
                 border-radius: 50%;
-                box-shadow: 0 0 5px rgba(0, 0, 0, 0.2);
+                box-shadow: 0 0 0.3125rem rgba(0, 0, 0, 0.2);
             }
 
             .slider-labels {
                 display: flex;
                 justify-content: space-between;
-                margin-top: -15px;
+                margin-top: -1rem;
             }
 
             .slider-label {
-                font-size: 12px;
+                font-size: 1.2em;
                 color: #666;
                 text-align: center;
             }
@@ -82,19 +87,83 @@
             .tooltip {
                 position: absolute;
                 background-color: white;
-                padding: 5px;
-                border: 1px solid #ddd;
-                border-radius: 5px;
+                padding: 0.3125rem;
+                border: 0.0625rem solid #ddd;
+                border-radius: 0.3rem;
                 pointer-events: none;
             }
 
             #slider-value {
                 text-align: center;
-                font-size: 18px;
+                font-size: 1rem;
                 font-weight: bold;
                 color: #333;
-                margin-bottom: 10px;
+                margin-bottom: 0.625rem;
             }
+            #sidebar {
+                position: fixed;
+                top: 0;
+                right: 0;
+                bottom: 0;
+                width: 15rem;
+                padding: 1.25rem;
+                background-color: white;
+                border-radius: 0.5rem;
+                box-shadow: 0 0.25rem 0.375rem rgba(0, 0, 0, 0.1);
+                margin-top: 1.25rem;
+                margin-bottom: 1.25rem;
+                overflow-y: auto;
+            }
+
+            .cluster {
+                  margin-bottom: 20px;
+                }
+                .cluster h3 {
+                  font-size: 18px;
+                  margin-bottom: 5px;
+                }
+                .cluster ul {
+                  list-style-type: none;
+                  padding: 0;
+                }
+                .cluster ul li {
+                  cursor: pointer;
+                  padding: 5px;
+                  margin-bottom: 3px;
+                  background-color: #ddd;
+                  border-radius: 4px;
+                }
+                .cluster ul li:hover {
+                  background-color: #ccc;
+                }
+
+                button {
+                  background-color: #eee;
+                  border-radius: 50%;
+                  padding: 4px;
+                  font-size: 16px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                }
+
+                button:hover {
+                  background-color: #ccc;
+                }
+
+                input[type="text"] {
+                }
+
+                h2 {
+                  font-family: Arial, sans-serif;
+                  font-size: 24px;
+                  color: #333;
+                  text-align: center;
+                  margin-bottom: 15px;
+                }
+
+                .material-symbols-outlined {  font-variation-settings:  'FILL' 0,  'wght' 300,  'GRAD' 0,  'opsz' 24}
+
         </style>
     </head>
     <body>
@@ -116,6 +185,9 @@
                 <span class="slider-label">30d</span>
                 <span class="slider-label">90d</span>
             </div>
+            <div id="sidebar">
+                <h3>Clusters</h3>
+                <div id="clusters"></div>
         </div>
     </body>
 </html>

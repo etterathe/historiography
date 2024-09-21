@@ -75,6 +75,56 @@ const filterHistoryByTimeHorizon = (historyItems, days) => {
   return historyItems.filter((item) => item.lastVisitTime > cutoff);
 };
 
+// Label Propagation Algorithm for community detection
+const applyLabelPropagation = (graph) => {
+  const labels = new Map();
+  const neighbors = new Map();
+
+  // Initialize labels and neighbors
+  graph.nodes.forEach((node) => {
+    labels.set(node.id, node.id); // Each node starts with its own label
+    neighbors.set(node.id, []);
+  });
+
+  graph.links.forEach((link) => {
+    neighbors.get(link.source).push(link.target);
+    neighbors.get(link.target).push(link.source);
+  });
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    graph.nodes.forEach((node) => {
+      const neighborLabels = neighbors.get(node.id).map((n) => labels.get(n));
+      const mostFrequentLabel = mode(neighborLabels);
+      if (labels.get(node.id) !== mostFrequentLabel) {
+        labels.set(node.id, mostFrequentLabel);
+        changed = true;
+      }
+    });
+  }
+
+  return labels;
+};
+
+// Helper function to find the most frequent label
+const mode = (array) => {
+  const frequencyMap = new Map();
+  array.forEach((item) => {
+    frequencyMap.set(item, (frequencyMap.get(item) || 0) + 1);
+  });
+  return [...frequencyMap.entries()].reduce((a, b) => (a[1] > b[1] ? a : b))[0];
+};
+
+const assignClustersToNodes = (clusters, nodes) => {
+  clusters.forEach((cluster, nodeId) => {
+    const node = nodes.get(nodeId);
+    if (node) {
+      node.cluster = cluster; // Assign cluster to node
+    }
+  });
+};
+
 const createGraphStructure = (historyItems) => {
   const nodes = new Map();
   const links = new Map();
@@ -89,6 +139,7 @@ const createGraphStructure = (historyItems) => {
         url: item.url,
         visitCount: 1,
         lastVisit: item.lastVisitTime,
+        cluster: null, // Cluster initially set to null
       });
     } else {
       const node = nodes.get(domain);
@@ -110,10 +161,15 @@ const createGraphStructure = (historyItems) => {
     }
   });
 
-  return {
+  const graph = {
     nodes: Array.from(nodes.values()),
     links: Array.from(links.values()),
   };
+
+  const clusters = applyLabelPropagation(graph);
+  assignClustersToNodes(clusters, nodes);
+
+  return graph;
 };
 
 // Graph rendering
@@ -166,6 +222,8 @@ const createLinks = (g, links) => {
     .attr("stroke-width", (d) => Math.sqrt(d.value));
 };
 
+const clusterColors = d3.scaleOrdinal(d3.schemeCategory10);
+
 const createNodes = (g, nodes, simulation) => {
   const node = g
     .append("g")
@@ -176,7 +234,10 @@ const createNodes = (g, nodes, simulation) => {
     .append("g")
     .call(drag(simulation));
 
-  node.append("circle").attr("r", 16).attr("fill", "white");
+  node
+    .append("circle")
+    .attr("r", 16)
+    .attr("fill", (d) => clusterColors(d.cluster));
 
   node
     .append("image")
@@ -262,6 +323,208 @@ const drag = (simulation) => {
     .on("end", dragended);
 };
 
+// Load saved cluster names from local storage
+const loadClusterNames = () => {
+  const savedNames = localStorage.getItem("clusterNames");
+  if (savedNames) {
+    return new Map(JSON.parse(savedNames));
+  }
+  return new Map();
+};
+
+const saveClusterNames = () => {
+  localStorage.setItem(
+    "clusterNames",
+    JSON.stringify(Array.from(clusterNames.entries())),
+  );
+};
+
+// Initialize cluster names map
+const clusterNames = loadClusterNames(); // Use loaded names from local storage
+
+const displayClustersInSidebar = (graph) => {
+  const sidebar = document.getElementById("sidebar");
+  sidebar.innerHTML = ""; // Clear existing content
+
+  // Add the "Clusters" title at the top of the sidebar
+  const title = document.createElement("h2");
+  title.textContent = "Clusters";
+  title.style.textAlign = "center"; // Center the title
+  title.style.marginBottom = "15px"; // Add some space below the title
+  sidebar.appendChild(title);
+
+  const clusters = new Map();
+  graph.nodes.forEach((node) => {
+    if (!clusters.has(node.cluster)) {
+      clusters.set(node.cluster, []); // Initialize cluster
+    }
+    clusters.get(node.cluster).push(node);
+  });
+
+  clusters.forEach((nodes, cluster) => {
+    const clusterDiv = document.createElement("div");
+    clusterDiv.className = "cluster";
+
+    const clusterHeader = document.createElement("div");
+    clusterHeader.style.display = "flex";
+    clusterHeader.style.alignItems = "center";
+    clusterHeader.style.position = "relative"; // Set relative position to manage text and input positioning
+
+    // Container for cluster name text and input (positioned relatively to allow overlaying)
+    const nameContainer = document.createElement("div");
+    nameContainer.style.position = "relative";
+    nameContainer.style.flexGrow = "1"; // Allow the name container to take the available space
+
+    // Display cluster name as text initially
+    const currentClusterName =
+      clusterNames.get(cluster) || `Cluster ${cluster}`;
+    const clusterNameText = document.createElement("span");
+    clusterNameText.textContent = currentClusterName;
+    clusterNameText.style.color = clusterColors(cluster);
+    clusterNameText.style.fontSize = "16px";
+    clusterNameText.style.cursor = "pointer";
+
+    // Cluster input field (hidden by default, positioned absolutely)
+    const clusterNameInput = document.createElement("input");
+    clusterNameInput.type = "text";
+    clusterNameInput.value = currentClusterName;
+    clusterNameInput.style.color = clusterColors(cluster);
+    clusterNameInput.style.fontSize = "18px";
+    clusterNameInput.style.border = "1px solid #ccc";
+    clusterNameInput.style.backgroundColor = "transparent";
+    clusterNameInput.style.position = "absolute"; // Positioned absolutely within the container
+    clusterNameInput.style.top = "0";
+    clusterNameInput.style.left = "0";
+    clusterNameInput.style.width = "100%";
+    clusterNameInput.style.display = "none"; // Hidden by default
+
+    // When the pencil button is clicked, show the input and hide the text
+    const editButton = document.createElement("button");
+    editButton.innerHTML =
+      '<span class="material-symbols-outlined">edit</span>'; // Material symbol of the pencil icon
+    editButton.style.border = "none";
+    editButton.style.backgroundColor = "transparent";
+    editButton.style.cursor = "pointer";
+    editButton.style.fontSize = "18px";
+    editButton.style.marginLeft = "8px";
+    editButton.style.borderRadius = "50%";
+    editButton.style.padding = "4px";
+
+    // Edit button click: show the input field and hide the text
+    editButton.addEventListener("click", (event) => {
+      event.stopPropagation(); // Prevent the cluster highlighting action
+      clusterNameText.style.display = "none";
+      clusterNameInput.style.display = "inline-block";
+      clusterNameInput.focus(); // Focus on input field
+    });
+
+    // Save the new cluster name when input loses focus or enter key is pressed
+    clusterNameInput.addEventListener("blur", () => {
+      clusterNames.set(cluster, clusterNameInput.value);
+      clusterNameText.textContent = clusterNameInput.value; // Update text with new name
+      clusterNameInput.style.display = "none"; // Hide input field
+      clusterNameText.style.display = "inline-block"; // Show text again
+      saveClusterNames(); // Save to local storage
+    });
+
+    clusterNameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        clusterNameInput.blur(); // Save and hide input when Enter is pressed
+      }
+    });
+
+    // Highlight cluster when clicking the cluster name
+    clusterNameText.addEventListener("click", () =>
+      highlightCluster(cluster, graph),
+    );
+
+    // Add delete button with trash icon (Unicode for trash can)
+    const deleteButton = document.createElement("button");
+    deleteButton.innerHTML =
+      '<span class="material-symbols-outlined">delete</span>'; // Material symbol for the trash icon
+    deleteButton.style.border = "none";
+    deleteButton.style.backgroundColor = "transparent";
+    deleteButton.style.cursor = "pointer";
+    deleteButton.style.fontSize = "18px";
+    deleteButton.style.marginLeft = "8px";
+    deleteButton.style.borderRadius = "50%";
+    deleteButton.style.padding = "4px";
+
+    // Delete button click: Remove the cluster
+    deleteButton.addEventListener("click", (event) => {
+      event.stopPropagation(); // Prevent other actions like highlighting
+      deleteCluster(cluster, graph); // Call deleteCluster function
+    });
+
+    // Append text and input to the name container
+    nameContainer.appendChild(clusterNameText);
+    nameContainer.appendChild(clusterNameInput);
+
+    // Append elements to the header
+    clusterHeader.appendChild(nameContainer);
+    clusterHeader.appendChild(editButton);
+    clusterHeader.appendChild(deleteButton); // Add delete button next to edit button
+
+    // Append the header to the cluster div
+    clusterDiv.appendChild(clusterHeader);
+    sidebar.appendChild(clusterDiv);
+  });
+};
+
+const deleteCluster = (cluster, graph) => {
+  // Remove the cluster's nodes from the graph
+  const remainingNodes = graph.nodes.filter((node) => node.cluster !== cluster);
+  const remainingLinks = graph.links.filter(
+    (link) =>
+      link.source.cluster !== cluster && link.target.cluster !== cluster,
+  );
+
+  // Update the graph with the remaining nodes and links
+  graph.nodes = remainingNodes;
+  graph.links = remainingLinks;
+
+  // Redraw the graph and update the sidebar
+  drawGraph(graph); // Redraw the graph without the deleted cluster
+  displayClustersInSidebar(graph); // Update the sidebar without the deleted cluster
+};
+
+let currentHighlightedCluster = null; // Keep track of the highlighted cluster
+
+const highlightCluster = (cluster, graph) => {
+  if (currentHighlightedCluster === cluster) {
+    resetHighlight(); // Reset if the same cluster is clicked again
+    currentHighlightedCluster = null;
+  } else {
+    const connectedNodes = new Set();
+    graph.nodes.forEach((node) => {
+      if (node.cluster === cluster) {
+        connectedNodes.add(node.id);
+      }
+    });
+
+    // Highlight nodes and links
+    d3.selectAll(".nodes circle").style("opacity", (d) =>
+      connectedNodes.has(d.id) ? 1 : 0.1,
+    );
+    d3.selectAll(".nodes image").style("opacity", (d) =>
+      connectedNodes.has(d.id) ? 1 : 0.1,
+    );
+    d3.selectAll(".links line").style("opacity", (l) =>
+      connectedNodes.has(l.source.id) && connectedNodes.has(l.target.id)
+        ? 1
+        : 0.1,
+    );
+
+    currentHighlightedCluster = cluster;
+  }
+};
+
+const resetHighlight = () => {
+  d3.selectAll(".nodes circle").style("opacity", 1);
+  d3.selectAll(".nodes image").style("opacity", 1);
+  d3.selectAll(".links line").style("opacity", 0.6); // Default opacity for links
+};
+
 const drawGraph = (data) => {
   d3.select("#graph").selectAll("*").remove();
 
@@ -296,6 +559,7 @@ const drawGraph = (data) => {
 
     node.attr("transform", (d) => `translate(${d.x},${d.y})`);
   });
+  displayClustersInSidebar(data);
 };
 
 // Main functions
@@ -315,7 +579,6 @@ const updateGraph = async (timeHorizon) => {
     }
   } catch (error) {
     console.error("Error updating graph:", error);
-    // TODO: Add user-facing error handling
   }
 };
 
@@ -353,12 +616,10 @@ document.addEventListener("DOMContentLoaded", () => {
     initializeUI();
   } catch (error) {
     console.error("Initialization error:", error);
-    // TODO: Add user-facing error handling
   }
 });
 
 // Global error handling
 window.addEventListener("error", (event) => {
   console.error("Uncaught error:", event.error);
-  // TODO: Add user-facing error handling
 });
