@@ -340,14 +340,29 @@ const displayClustersInSidebar = (graph) => {
   const sidebar = document.getElementById("sidebar");
   sidebar.innerHTML = "";
 
+  const sidebarContent = document.createElement("div");
+  sidebarContent.className = "sidebar-content";
+  sidebar.appendChild(sidebarContent);
+
+  const titleContainer = document.createElement("div");
+  titleContainer.className = "title-container"; // Flex container for alignment
+  sidebarContent.appendChild(titleContainer);
+
+  const collapseButton = document.createElement("button");
+  collapseButton.innerHTML =
+    '<span class="material-symbols-outlined">right_panel_close</span>';
+  collapseButton.className = "collapse-button";
+  collapseButton.addEventListener("click", toggleSidebar);
+  titleContainer.appendChild(collapseButton);
+
   const title = document.createElement("h2");
   title.textContent = "Clusters";
   title.className = "sidebar-title";
-  sidebar.appendChild(title);
+  titleContainer.appendChild(title);
 
   const clusterList = document.createElement("div");
   clusterList.className = "cluster-list";
-  sidebar.appendChild(clusterList);
+  sidebarContent.appendChild(clusterList);
 
   const clusters = new Map();
   graph.nodes.forEach((node) => {
@@ -449,7 +464,7 @@ const displayClustersInSidebar = (graph) => {
     '<span class="material-symbols-outlined">download</span>';
   saveButton.className = "save-button";
   saveButton.addEventListener("click", () => saveGraphAsJSON(graph));
-  sidebar.appendChild(saveButton);
+  sidebarContent.appendChild(saveButton);
 };
 
 function saveClusterName(
@@ -500,27 +515,44 @@ const hideClusterFromGraph = (cluster, graph) => {
 };
 
 function dimOtherClusters(selectedCluster) {
-  console.log("Dimming other clusters, selected cluster:", selectedCluster);
   const clusterDivs = document.querySelectorAll(".cluster");
   clusterDivs.forEach((clusterDiv) => {
     const clusterNameElement = clusterDiv.querySelector(".cluster-name");
     const clusterId = clusterNameElement.dataset.clusterId;
     if (selectedCluster === null) {
       // Reset all clusters
-      console.log("Resetting cluster:", clusterId);
       clusterDiv.style.opacity = "1";
       clusterDiv.style.fontWeight = "normal";
     } else if (clusterId === selectedCluster) {
-      console.log("Highlighting cluster:", clusterId);
       clusterDiv.style.opacity = "1";
       clusterDiv.style.fontWeight = "bold";
     } else {
-      console.log("Dimming cluster:", clusterId);
       clusterDiv.style.opacity = "0.5";
       clusterDiv.style.fontWeight = "normal";
     }
   });
 }
+
+const toggleSidebar = () => {
+  const sidebar = document.getElementById("sidebar");
+  const collapseButton = document.querySelector(".collapse-button");
+  const clusterList = document.querySelector(".cluster-list");
+  const title = document.querySelector(".sidebar-title");
+
+  const isCollapsed = sidebar.classList.toggle("collapsed");
+
+  if (isCollapsed) {
+    sidebar.style.width = "3rem"; // Shrink sidebar to show just the button
+    title.style.display = "none";
+    collapseButton.innerHTML =
+      '<span class="material-symbols-outlined">right_panel_open</span>';
+  } else {
+    sidebar.style.width = "17rem"; // Restore sidebar width
+    title.style.display = "inline-block";
+    collapseButton.innerHTML =
+      '<span class="material-symbols-outlined">right_panel_close</span>';
+  }
+};
 
 const showClusterOnGraph = (cluster, graph) => {
   d3.selectAll(".nodes g")
