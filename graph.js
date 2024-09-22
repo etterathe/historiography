@@ -1,8 +1,6 @@
-// Constants
 const MICROSECONDS_PER_DAY = 1000 * 60 * 60 * 24;
-const MAX_RESULTS_PER_SEARCH = 1000;
+const MAX_RESULTS_PER_SEARCH = 100000;
 
-// Helper functions
 const getDomain = (url) => {
   try {
     return new URL(url).hostname;
@@ -17,7 +15,6 @@ const formatDate = (date) => new Date(date).toLocaleString();
 const getFaviconUrl = (url) =>
   `https://www.google.com/s2/favicons?domain=${url}&sz=32`;
 
-// History fetching
 const getHistory = async (days) => {
   console.log(`Starting to fetch history for the last ${days} days...`);
   const endTime = Date.now();
@@ -51,28 +48,32 @@ const getHistory = async (days) => {
   };
 
   let allHistory = [];
-  let currentStartTime = startTime;
+  let currentEndTime = endTime;
 
-  while (currentStartTime < endTime) {
-    const chunk = await fetchHistoryChunk(currentStartTime, endTime);
+  while (currentEndTime > startTime) {
+    const chunk = await fetchHistoryChunk(startTime, currentEndTime);
     allHistory = allHistory.concat(chunk);
 
     if (chunk.length < MAX_RESULTS_PER_SEARCH) break;
 
-    currentStartTime = Math.min(...chunk.map((h) => h.lastVisitTime)) + 1;
+    // Ensure we're moving backward in time
+    currentEndTime = Math.min(...chunk.map((h) => h.lastVisitTime)) - 1;
   }
 
   console.log(`Finished fetching history. Total items: ${allHistory.length}`);
   return allHistory;
 };
 
-// Data processing
 const filterHistoryByTimeHorizon = (historyItems, days) => {
   console.log(
     `Filtering ${historyItems.length} items for last ${days} days...`,
   );
   const cutoff = Date.now() - days * MICROSECONDS_PER_DAY;
-  return historyItems.filter((item) => item.lastVisitTime > cutoff);
+  const filteredItems = historyItems.filter(
+    (item) => item.lastVisitTime > cutoff,
+  );
+  console.log(`Filtered to ${filteredItems.length} items`);
+  return filteredItems;
 };
 
 // Label Propagation Algorithm for community detection
@@ -80,9 +81,8 @@ const applyLabelPropagation = (graph) => {
   const labels = new Map();
   const neighbors = new Map();
 
-  // Initialize labels and neighbors
   graph.nodes.forEach((node) => {
-    labels.set(node.id, node.id); // Each node starts with its own label
+    labels.set(node.id, node.id);
     neighbors.set(node.id, []);
   });
 
@@ -107,7 +107,6 @@ const applyLabelPropagation = (graph) => {
   return labels;
 };
 
-// Helper function to find the most frequent label
 const mode = (array) => {
   const frequencyMap = new Map();
   array.forEach((item) => {
@@ -120,7 +119,7 @@ const assignClustersToNodes = (clusters, nodes) => {
   clusters.forEach((cluster, nodeId) => {
     const node = nodes.get(nodeId);
     if (node) {
-      node.cluster = cluster; // Assign cluster to node
+      node.cluster = cluster;
     }
   });
 };
@@ -132,14 +131,13 @@ const createGraphStructure = (historyItems) => {
   historyItems.forEach((item, index) => {
     const domain = getDomain(item.url);
 
-    // Update nodes
     if (!nodes.has(domain)) {
       nodes.set(domain, {
         id: domain,
         url: item.url,
         visitCount: 1,
         lastVisit: item.lastVisitTime,
-        cluster: null, // Cluster initially set to null
+        cluster: null,
       });
     } else {
       const node = nodes.get(domain);
@@ -147,7 +145,6 @@ const createGraphStructure = (historyItems) => {
       node.lastVisit = Math.max(node.lastVisit, item.lastVisitTime);
     }
 
-    // Update links
     if (index > 0) {
       const prevDomain = getDomain(historyItems[index - 1].url);
       if (prevDomain !== domain) {
@@ -172,7 +169,6 @@ const createGraphStructure = (historyItems) => {
   return graph;
 };
 
-// Graph rendering
 const createSVG = (width, height) => {
   return d3
     .select("#graph")
@@ -323,7 +319,6 @@ const drag = (simulation) => {
     .on("end", dragended);
 };
 
-// Load saved cluster names from local storage
 const loadClusterNames = () => {
   const savedNames = localStorage.getItem("clusterNames");
   if (savedNames) {
@@ -339,21 +334,17 @@ const saveClusterNames = () => {
   );
 };
 
-// Initialize cluster names map
-const clusterNames = loadClusterNames(); // Use loaded names from local storage
+const clusterNames = loadClusterNames();
 
 const displayClustersInSidebar = (graph) => {
   const sidebar = document.getElementById("sidebar");
-  sidebar.innerHTML = ""; // Clear existing content
+  sidebar.innerHTML = "";
 
-  // Add the "Clusters" title at the top of the sidebar
   const title = document.createElement("h2");
   title.textContent = "Clusters";
-  title.style.textAlign = "center"; // Center the title
-  title.style.marginBottom = "1.5rem"; // Add some space below the title
+  title.className = "sidebar-title";
   sidebar.appendChild(title);
 
-  // Create a container for clusters with flex-grow to fill available space
   const clusterList = document.createElement("div");
   clusterList.className = "cluster-list";
   sidebar.appendChild(clusterList);
@@ -361,140 +352,186 @@ const displayClustersInSidebar = (graph) => {
   const clusters = new Map();
   graph.nodes.forEach((node) => {
     if (!clusters.has(node.cluster)) {
-      clusters.set(node.cluster, []); // Initialize cluster
+      clusters.set(node.cluster, []);
     }
     clusters.get(node.cluster).push(node);
   });
 
+  const hiddenClusters = new Set();
+  const clusterTemplate = document.getElementById("cluster-template");
+  let currentlyHighlightedCluster = null;
+
   clusters.forEach((nodes, cluster) => {
-    const clusterDiv = document.createElement("div");
-    clusterDiv.className = "cluster";
+    const clusterElement = clusterTemplate.content.cloneNode(true);
+    const clusterDiv = clusterElement.querySelector(".cluster");
+    const nameContainer = clusterElement.querySelector(".name-container");
+    const clusterNameText = clusterElement.querySelector(".cluster-name");
+    const clusterNameInput = clusterElement.querySelector(
+      ".cluster-name-input",
+    );
+    const editButton = clusterElement.querySelector(".edit-button");
+    const toggleVisibilityButton = clusterElement.querySelector(
+      ".toggle-visibility-button",
+    );
+    const deleteButton = clusterElement.querySelector(".delete-button");
 
-    const clusterHeader = document.createElement("div");
-    clusterHeader.style.display = "flex";
-    clusterHeader.style.alignItems = "center";
-    clusterHeader.style.position = "relative"; // Set relative position to manage text and input positioning
-
-    // Container for cluster name text and input (positioned relatively to allow overlaying)
-    const nameContainer = document.createElement("div");
-    nameContainer.style.position = "relative";
-    nameContainer.style.flexGrow = "1"; // Allow the name container to take the available space
-
-    // Display cluster name as text initially
     const currentClusterName = clusterNames.get(cluster) || `${cluster}`;
-    const clusterNameText = document.createElement("span");
     clusterNameText.textContent = currentClusterName;
-    clusterNameText.style.color = clusterColors(cluster);
-    clusterNameText.style.fontSize = "16px";
-    clusterNameText.style.cursor = "pointer";
-
-    // Cluster input field (hidden by default, positioned absolutely)
-    const clusterNameInput = document.createElement("input");
-    clusterNameInput.type = "text";
+    clusterNameText.dataset.clusterId = cluster;
+    clusterNameText.title = currentClusterName;
+    clusterNameText.style.background = clusterColors(cluster);
     clusterNameInput.value = currentClusterName;
     clusterNameInput.style.color = clusterColors(cluster);
-    clusterNameInput.style.fontSize = "16px";
-    clusterNameInput.style.backgroundColor = "transparent";
-    clusterNameInput.style.position = "absolute"; // Positioned absolutely within the container
-    clusterNameInput.style.border = "1px solid #ccc";
-    clusterNameInput.style.top = "0";
-    clusterNameInput.style.left = "0";
-    clusterNameInput.style.width = "100%";
-    clusterNameInput.style.display = "none"; // Hidden by default
 
-    // When the pencil button is clicked, show the input and hide the text
-    const editButton = document.createElement("button");
-    editButton.innerHTML =
-      '<span class="material-symbols-outlined">edit</span>'; // Material symbol of the pencil icon
-    editButton.style.border = "none";
-    editButton.style.backgroundColor = "transparent";
-    editButton.style.cursor = "pointer";
-    editButton.style.fontSize = "18px";
-    editButton.style.marginLeft = "8px";
-    editButton.style.borderRadius = "50%";
-    editButton.style.padding = "4px";
-
-    // Edit button click: show the input field and hide the text
     editButton.addEventListener("click", (event) => {
-      event.stopPropagation(); // Prevent the cluster highlighting action
-      clusterNameText.style.display = "none";
-      clusterNameInput.style.display = "inline-block";
-      clusterNameInput.focus(); // Focus on input field
+      event.stopPropagation();
+      nameContainer.classList.add("editing");
+      clusterNameInput.value = clusterNameText.textContent;
+      clusterNameInput.style.display = "block";
+      clusterNameInput.focus();
+      clusterNameInput.select();
     });
 
-    // Save the new cluster name when input loses focus or enter key is pressed
-    clusterNameInput.addEventListener("blur", () => {
-      clusterNames.set(cluster, clusterNameInput.value);
-      clusterNameText.textContent = clusterNameInput.value; // Update text with new name
-      clusterNameInput.style.display = "none"; // Hide input field
-      clusterNameText.style.display = "inline-block"; // Show text again
-      saveClusterNames(); // Save to local storage
-    });
-
+    clusterNameInput.addEventListener("blur", () =>
+      saveClusterName(
+        cluster,
+        clusterNameText,
+        clusterNameInput,
+        nameContainer,
+      ),
+    );
     clusterNameInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
-        clusterNameInput.blur(); // Save and hide input when Enter is pressed
+        saveClusterName(
+          cluster,
+          clusterNameText,
+          clusterNameInput,
+          nameContainer,
+        );
       }
     });
 
-    // Highlight cluster when clicking the cluster name
-    clusterNameText.addEventListener("click", () =>
-      highlightCluster(cluster, graph),
-    );
+    clusterNameText.addEventListener("click", () => {
+      const clickedCluster = clusterNameText.dataset.clusterId;
+      console.log("Cluster clicked:", clickedCluster);
+      if (currentlyHighlightedCluster === clickedCluster) {
+        // If the same cluster is clicked again, reset all clusters
+        dimOtherClusters(null);
+        currentlyHighlightedCluster = null;
+      } else {
+        // Highlight the clicked cluster
+        dimOtherClusters(clickedCluster);
+        currentlyHighlightedCluster = clickedCluster;
+      }
+      highlightCluster(clickedCluster, graph);
+    });
 
-    // Add delete button with trash icon (Unicode for trash can)
-    const deleteButton = document.createElement("button");
-    deleteButton.innerHTML =
-      '<span class="material-symbols-outlined">delete</span>'; // Material symbol for the trash icon
-    deleteButton.style.border = "none";
-    deleteButton.style.backgroundColor = "transparent";
-    deleteButton.style.cursor = "pointer";
-    deleteButton.style.fontSize = "18px";
-    deleteButton.style.marginLeft = "8px";
-    deleteButton.style.borderRadius = "50%";
-    deleteButton.style.padding = "4px";
-
-    // Delete button click: Remove the cluster from the sidebar
     deleteButton.addEventListener("click", (event) => {
-      event.stopPropagation(); // Prevent other actions like highlighting
+      event.stopPropagation();
       deleteClusterFromSidebar(clusterDiv);
     });
 
-    // Append text and input to the name container
-    nameContainer.appendChild(clusterNameText);
-    nameContainer.appendChild(clusterNameInput);
+    toggleVisibilityButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleClusterVisibility(
+        cluster,
+        graph,
+        toggleVisibilityButton,
+        hiddenClusters,
+      );
+    });
 
-    // Append elements to the header
-    clusterHeader.appendChild(nameContainer);
-    clusterHeader.appendChild(editButton);
-    clusterHeader.appendChild(deleteButton); // Add delete button next to edit button
-
-    // Append the header to the cluster div
-    clusterDiv.appendChild(clusterHeader);
-    sidebar.appendChild(clusterDiv);
+    clusterList.appendChild(clusterElement);
   });
-  // Add the Save button at the bottom of the sidebar
+
   const saveButton = document.createElement("button");
   saveButton.innerHTML =
-    '<span class="material-symbols-outlined">download</span>'; // Download icon
-  saveButton.style.marginTop = "20px";
-  saveButton.style.width = "100%";
-  saveButton.style.padding = "10px";
-  saveButton.style.fontSize = "16px";
-  saveButton.style.cursor = "pointer";
-  saveButton.style.color = "white";
-  saveButton.style.backgroundColor = "gray";
-  saveButton.style.border = "none";
-  saveButton.style.borderRadius = "5px";
+    '<span class="material-symbols-outlined">download</span>';
   saveButton.className = "save-button";
-
-  // Save button click: Download the graph as a JSON file
   saveButton.addEventListener("click", () => saveGraphAsJSON(graph));
-
   sidebar.appendChild(saveButton);
 };
 
-// Function to save the current graph to a JSON file
+function saveClusterName(
+  cluster,
+  clusterNameText,
+  clusterNameInput,
+  nameContainer,
+) {
+  const newName = clusterNameInput.value.trim();
+  if (newName !== "") {
+    clusterNames.set(cluster, newName);
+    clusterNameText.textContent = newName;
+    clusterNameText.title = newName;
+  }
+  nameContainer.classList.remove("editing");
+  clusterNameInput.style.display = "none";
+  clusterNameText.style.display = "inline-block";
+  saveClusterNames();
+}
+
+function toggleClusterVisibility(
+  cluster,
+  graph,
+  toggleVisibilityButton,
+  hiddenClusters,
+) {
+  if (hiddenClusters.has(cluster)) {
+    showClusterOnGraph(cluster, graph);
+    toggleVisibilityButton.innerHTML =
+      '<span class="material-symbols-outlined">visibility</span>';
+    hiddenClusters.delete(cluster);
+  } else {
+    hideClusterFromGraph(cluster, graph);
+    toggleVisibilityButton.innerHTML =
+      '<span class="material-symbols-outlined">visibility_off</span>';
+    hiddenClusters.add(cluster);
+  }
+}
+
+const hideClusterFromGraph = (cluster, graph) => {
+  d3.selectAll(".nodes g")
+    .filter((d) => d.cluster === cluster)
+    .style("display", "none");
+
+  d3.selectAll(".links line")
+    .filter((l) => l.source.cluster === cluster || l.target.cluster === cluster)
+    .style("display", "none");
+};
+
+function dimOtherClusters(selectedCluster) {
+  console.log("Dimming other clusters, selected cluster:", selectedCluster);
+  const clusterDivs = document.querySelectorAll(".cluster");
+  clusterDivs.forEach((clusterDiv) => {
+    const clusterNameElement = clusterDiv.querySelector(".cluster-name");
+    const clusterId = clusterNameElement.dataset.clusterId;
+    if (selectedCluster === null) {
+      // Reset all clusters
+      console.log("Resetting cluster:", clusterId);
+      clusterDiv.style.opacity = "1";
+      clusterDiv.style.fontWeight = "normal";
+    } else if (clusterId === selectedCluster) {
+      console.log("Highlighting cluster:", clusterId);
+      clusterDiv.style.opacity = "1";
+      clusterDiv.style.fontWeight = "bold";
+    } else {
+      console.log("Dimming cluster:", clusterId);
+      clusterDiv.style.opacity = "0.5";
+      clusterDiv.style.fontWeight = "normal";
+    }
+  });
+}
+
+const showClusterOnGraph = (cluster, graph) => {
+  d3.selectAll(".nodes g")
+    .filter((d) => d.cluster === cluster)
+    .style("display", "");
+
+  d3.selectAll(".links line")
+    .filter((l) => l.source.cluster === cluster || l.target.cluster === cluster)
+    .style("display", "");
+};
+
 const saveGraphAsJSON = (graph) => {
   const graphData = {
     nodes: graph.nodes.map((node) => ({
@@ -511,21 +548,21 @@ const saveGraphAsJSON = (graph) => {
     })),
   };
 
-  const jsonString = JSON.stringify(graphData, null, 2); // Pretty-print JSON
+  const jsonString = JSON.stringify(graphData, null, 2);
   const blob = new Blob([jsonString], { type: "application/json" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = "graph.json"; // File name for download
+  a.download = "graph.json";
   document.body.appendChild(a);
   a.click();
 
-  document.body.removeChild(a); // Clean up after download
+  document.body.removeChild(a);
 };
 
 const deleteClusterFromSidebar = (clusterDiv) => {
-  clusterDiv.remove(); // Remove the cluster element from the sidebar
+  clusterDiv.remove();
 };
 
 const deleteCluster = (cluster, graph) => {
@@ -536,20 +573,18 @@ const deleteCluster = (cluster, graph) => {
       link.source.cluster !== cluster && link.target.cluster !== cluster,
   );
 
-  // Update the graph with the remaining nodes and links
   graph.nodes = remainingNodes;
   graph.links = remainingLinks;
 
-  // Redraw the graph and update the sidebar
-  drawGraph(graph); // Redraw the graph without the deleted cluster
-  displayClustersInSidebar(graph); // Update the sidebar without the deleted cluster
+  drawGraph(graph);
+  displayClustersInSidebar(graph);
 };
 
-let currentHighlightedCluster = null; // Keep track of the highlighted cluster
+let currentHighlightedCluster = null;
 
 const highlightCluster = (cluster, graph) => {
   if (currentHighlightedCluster === cluster) {
-    resetHighlight(); // Reset if the same cluster is clicked again
+    resetHighlight();
     currentHighlightedCluster = null;
   } else {
     const connectedNodes = new Set();
@@ -579,7 +614,7 @@ const highlightCluster = (cluster, graph) => {
 const resetHighlight = () => {
   d3.selectAll(".nodes circle").style("opacity", 1);
   d3.selectAll(".nodes image").style("opacity", 1);
-  d3.selectAll(".links line").style("opacity", 0.6); // Default opacity for links
+  d3.selectAll(".links line").style("opacity", 0.6);
 };
 
 const drawGraph = (data) => {
@@ -623,7 +658,13 @@ const drawGraph = (data) => {
 const updateGraph = async (timeHorizon) => {
   try {
     const historyItems = await getHistory(timeHorizon);
+    console.log(`Fetched ${historyItems.length} items for ${timeHorizon} days`);
+
     const filteredItems = filterHistoryByTimeHorizon(historyItems, timeHorizon);
+    console.log(
+      `Filtered to ${filteredItems.length} items for ${timeHorizon} days`,
+    );
+
     const graphData = createGraphStructure(filteredItems);
 
     drawGraph(graphData);
@@ -660,13 +701,11 @@ const initializeUI = () => {
     updateGraph(selectedTimeHorizon);
   });
 
-  // Initial setup
   const initialDays = timeHorizons[sliderElement.value];
   updateSliderValue(initialDays);
   updateGraph(initialDays);
 };
 
-// Initialization
 document.addEventListener("DOMContentLoaded", () => {
   try {
     console.log("DOM content loaded. Initializing...");
@@ -676,7 +715,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// Global error handling
 window.addEventListener("error", (event) => {
   console.error("Uncaught error:", event.error);
 });
